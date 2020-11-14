@@ -64,6 +64,12 @@ type WebhookInstallOptions struct {
 	// it will be automatically populated by the local temp dir
 	LocalServingCertDir string
 
+	// CAData is the CA that can be used to trust the serving certificates in LocalServingCertDir.
+	LocalServingCAData []byte
+
+	// LocalServingHostExternalName is the hostname to use to reach the webhook server.
+	LocalServingHostExternalName string
+
 	// MaxTime is the max time to wait
 	MaxTime time.Duration
 
@@ -134,13 +140,19 @@ func modifyWebhook(webhook map[string]interface{}, caData []byte, hostPort strin
 }
 
 func (o *WebhookInstallOptions) generateHostPort() (string, error) {
-	port, host, err := addr.Suggest()
-	if err != nil {
-		return "", fmt.Errorf("unable to grab random port for serving webhooks on: %v", err)
+	if o.LocalServingPort == 0 {
+		port, host, err := addr.Suggest(o.LocalServingHost)
+		if err != nil {
+			return "", fmt.Errorf("unable to grab random port for serving webhooks on: %v", err)
+		}
+		o.LocalServingPort = port
+		o.LocalServingHost = host
 	}
-	o.LocalServingPort = port
-	o.LocalServingHost = host
-	return net.JoinHostPort(host, fmt.Sprintf("%d", port)), nil
+	host := o.LocalServingHostExternalName
+	if host == "" {
+		host = o.LocalServingHost
+	}
+	return net.JoinHostPort(host, fmt.Sprintf("%d", o.LocalServingPort)), nil
 }
 
 // Install installs specified webhooks to the API server
@@ -250,7 +262,8 @@ func (o *WebhookInstallOptions) setupCA() ([]byte, error) {
 		return nil, fmt.Errorf("unable to set up webhook CA: %v", err)
 	}
 
-	hookCert, err := hookCA.NewServingCert()
+	names := []string{"localhost", o.LocalServingHost, o.LocalServingHostExternalName}
+	hookCert, err := hookCA.NewServingCert(names...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to set up webhook serving certs: %v", err)
 	}
